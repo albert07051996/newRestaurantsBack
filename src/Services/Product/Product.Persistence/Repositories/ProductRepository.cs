@@ -131,6 +131,38 @@ public class ProductRepository : IProductRepository
             .ToListAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// ახალი კატეგორიის დამატება
+    /// </summary>
+    public async Task AddDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default)
+    {
+        await _context.DishCategories.AddAsync(category, cancellationToken);
+    }
+
+    /// <summary>
+    /// კატეგორიის განახლება
+    /// </summary>
+    public Task UpdateDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default)
+    {
+        _context.DishCategories.Update(category);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// კატეგორიის წაშლა (Soft Delete)
+    /// </summary>
+    public async Task DeleteDishCategoryAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var category = await _context.DishCategories
+            .FirstOrDefaultAsync(dc => dc.Id == id && !dc.IsDeleted, cancellationToken);
+
+        if (category != null)
+        {
+            category.SoftDelete(); // Domain method
+            _context.DishCategories.Update(category);
+        }
+    }
+
     // ========== Save Changes ==========
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)

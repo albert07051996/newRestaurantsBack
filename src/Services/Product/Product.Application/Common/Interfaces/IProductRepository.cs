@@ -17,6 +17,9 @@ public interface IProductRepository
     Task<bool> DishCategoryExistsAsync(Guid categoryId, CancellationToken cancellationToken = default);
     Task<DishCategory?> GetDishCategoryByIdAsync(Guid id, CancellationToken cancellationToken = default);
     Task<List<DishCategory>> GetAllDishCategoriesAsync(CancellationToken cancellationToken = default);
+    Task AddDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default);
+    Task UpdateDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default);
+    Task DeleteDishCategoryAsync(Guid id, CancellationToken cancellationToken = default);
 
     // Save Changes
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);

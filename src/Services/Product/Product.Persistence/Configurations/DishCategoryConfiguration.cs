@@ -32,6 +32,12 @@ public class DishCategoryConfiguration : IEntityTypeConfiguration<DishCategory>
         builder.Property(dc => dc.IsActive)
             .IsRequired();
 
+        builder.Property(dc => dc.ImageUrl)
+            .HasMaxLength(500);
+
+        builder.Property(dc => dc.ImagePublicId)
+            .HasMaxLength(200);
+
         builder.Property(dc => dc.CreatedAt)
             .IsRequired();
 

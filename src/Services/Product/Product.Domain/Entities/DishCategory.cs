@@ -14,6 +14,10 @@ public class DishCategory : BaseEntity
     public int DisplayOrder { get; private set; }
     public bool IsActive { get; private set; } = true;
 
+    // Image Properties
+    public string? ImageUrl { get; private set; }
+    public string? ImagePublicId { get; private set; }
+
     // Navigation Properties
     private readonly List<Dish> _dishes = new();
     public IReadOnlyCollection<Dish> Dishes => _dishes.AsReadOnly();
@@ -27,7 +31,9 @@ public class DishCategory : BaseEntity
         string nameEn,
         string? descriptionKa = null,
         string? descriptionEn = null,
-        int displayOrder = 0)
+        int displayOrder = 0,
+        string? imageUrl = null,
+        string? imagePublicId = null)
     {
         if (string.IsNullOrWhiteSpace(nameKa))
             throw new ArgumentException("ქართული სახელი აუცილებელია", nameof(nameKa));
@@ -42,7 +48,9 @@ public class DishCategory : BaseEntity
             DescriptionKa = descriptionKa,
             DescriptionEn = descriptionEn,
             DisplayOrder = displayOrder,
-            IsActive = true
+            IsActive = true,
+            ImageUrl = imageUrl,
+            ImagePublicId = imagePublicId
         };
 
         return category;
@@ -86,6 +94,23 @@ public class DishCategory : BaseEntity
     public void ChangeDisplayOrder(int newOrder)
     {
         DisplayOrder = newOrder;
+        UpdateTimestamp();
+    }
+
+    public void UpdateImage(string imageUrl, string? imagePublicId = null)
+    {
+        if (string.IsNullOrWhiteSpace(imageUrl))
+            throw new ArgumentException("სურათის URL აუცილებელია", nameof(imageUrl));
+
+        ImageUrl = imageUrl;
+        ImagePublicId = imagePublicId;
+        UpdateTimestamp();
+    }
+
+    public void RemoveImage()
+    {
+        ImageUrl = null;
+        ImagePublicId = null;
         UpdateTimestamp();
     }
 }
