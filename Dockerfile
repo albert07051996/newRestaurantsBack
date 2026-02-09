@@ -1,13 +1,5 @@
-# Stage 1: Build Frontend
-FROM node:20-alpine AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
-COPY frontend/ ./
-RUN npm run build
-
-# Stage 2: Build Backend
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS backend-build
+# Build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 COPY RestaurantsBack.Product.sln ./
 COPY src/Services/Product/Product.API/Product.API.csproj src/Services/Product/Product.API/
@@ -19,11 +11,10 @@ RUN dotnet restore
 COPY src/ src/
 RUN dotnet publish src/Services/Product/Product.API/Product.API.csproj -c Release -o /app/publish
 
-# Stage 3: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+# Runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
-COPY --from=backend-build /app/publish ./
-COPY --from=frontend-build /app/frontend/dist ./wwwroot
+COPY --from=build /app/publish ./
 ENV ASPNETCORE_URLS=http://+:${PORT:-10000}
 ENV ASPNETCORE_ENVIRONMENT=Production
 EXPOSE 10000

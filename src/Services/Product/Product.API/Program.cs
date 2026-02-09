@@ -98,24 +98,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHsts();
-}
-
 app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
-
-app.UseDefaultFiles();
-app.UseStaticFiles();
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-
-// SPA fallback - serve index.html for non-API routes
-app.MapFallbackToFile("index.html");
 
 app.Run();

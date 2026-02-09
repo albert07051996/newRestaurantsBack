@@ -1,7 +1,6 @@
 **/bin/
 **/obj/
-**/node_modules/
-frontend/dist/
+frontend/
 .git/
 .vs/
 *.user
