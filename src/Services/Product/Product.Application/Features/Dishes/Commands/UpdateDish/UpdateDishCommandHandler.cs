@@ -1,96 +1,66 @@
-﻿using MediatR;
+using MediatR;
 using Product.Application.Common.Interfaces;
+using Product.Application.Common.Mappings;
 using Product.Application.Common.Models;
 using Product.Application.DTOs;
 
 namespace Product.Application.Features.Dishes.Commands.UpdateDish;
 
-public class UpdateDishCommandHandler : IRequestHandler<UpdateDishCommand, Result<DishResponseDto>>
+/// <summary>
+/// Handler for updating an existing dish.
+/// </summary>
+public sealed class UpdateDishCommandHandler : IRequestHandler<UpdateDishCommand, Result<DishResponseDto>>
 {
-    private readonly IProductRepository _productRepository;
+    private readonly IDishRepository _dishRepository;
+    private readonly IDishCategoryRepository _categoryRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICloudinaryService _cloudinaryService;
 
     public UpdateDishCommandHandler(
-        IProductRepository productRepository,
+        IDishRepository dishRepository,
+        IDishCategoryRepository categoryRepository,
+        IUnitOfWork unitOfWork,
         ICloudinaryService cloudinaryService)
     {
-        _productRepository = productRepository;
+        _dishRepository = dishRepository;
+        _categoryRepository = categoryRepository;
+        _unitOfWork = unitOfWork;
         _cloudinaryService = cloudinaryService;
     }
 
     public async Task<Result<DishResponseDto>> Handle(UpdateDishCommand request, CancellationToken cancellationToken)
     {
-        // 1. შევამოწმოთ არსებობს თუ არა კერძი
-        var dish = await _productRepository.GetDishByIdAsync(request.Id, cancellationToken);
-        if (dish == null)
+        // 1. Validate dish exists
+        var dish = await _dishRepository.GetDishByIdAsync(request.Id, cancellationToken);
+        if (dish is null)
         {
             return Result<DishResponseDto>.Failure(new Error(
                 "Dish.NotFound",
-                $"კერძი ID {request.Id} ვერ მოიძებნა."
+                $"Dish with ID {request.Id} was not found."
             ));
         }
 
-        // 2. შევამოწმოთ არსებობს თუ არა კატეგორია
-        var categoryExists = await _productRepository.DishCategoryExistsAsync(request.DishCategoryId, cancellationToken);
+        // 2. Validate category exists
+        var categoryExists = await _categoryRepository.DishCategoryExistsAsync(request.DishCategoryId, cancellationToken);
         if (!categoryExists)
         {
             return Result<DishResponseDto>.Failure(new Error(
                 "DishCategory.NotFound",
-                $"კატეგორია ID {request.DishCategoryId} ვერ მოიძებნა."
+                $"Category with ID {request.DishCategoryId} was not found."
             ));
         }
 
-        // 3. თუ ახალი სურათია მოწოდებული, ავტვირთოთ Cloudinary-ში
-        if (request.ImageFile != null && request.ImageFile.Length > 0)
+        // 3. Upload new image if provided
+        if (request.ImageFile is { Length: > 0 })
         {
-            // ვალიდაცია
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            var fileExtension = Path.GetExtension(request.ImageFile.FileName).ToLowerInvariant();
-
-            if (!allowedExtensions.Contains(fileExtension))
+            var imageResult = await HandleImageUploadAsync(dish, request, cancellationToken);
+            if (!imageResult.IsSuccess)
             {
-                return Result<DishResponseDto>.Failure(new Error(
-                    "Image.InvalidFormat",
-                    "მხოლოდ .jpg, .jpeg, .png, .gif, .webp ფორმატები დაშვებულია."
-                ));
-            }
-
-            if (request.ImageFile.Length > 5 * 1024 * 1024)
-            {
-                return Result<DishResponseDto>.Failure(new Error(
-                    "Image.TooLarge",
-                    "სურათის ზომა არ უნდა აღემატებოდეს 5MB-ს."
-                ));
-            }
-
-            try
-            {
-                // წავშალოთ ძველი სურათი Cloudinary-დან (თუ არსებობს)
-                if (!string.IsNullOrEmpty(dish.ImagePublicId))
-                {
-                    await _cloudinaryService.DeleteImageAsync(dish.ImagePublicId, cancellationToken);
-                }
-
-                // ავტვირთოთ ახალი სურათი
-                var imageUrl = await _cloudinaryService.UploadImageAsync(
-                    request.ImageFile,
-                    $"dishes/{request.Id}",
-                    cancellationToken
-                );
-
-                // განვაახლოთ სურათი Domain-ში
-                dish.UpdateImage(imageUrl, $"dishes/{request.Id}");
-            }
-            catch (Exception ex)
-            {
-                return Result<DishResponseDto>.Failure(new Error(
-                    "Image.UploadFailed",
-                    $"სურათის ატვირთვა ვერ მოხერხდა: {ex.Message}"
-                ));
+                return Result<DishResponseDto>.Failure(imageResult.Error!);
             }
         }
 
-        // 4. განვაახლოთ კერძი (Domain method)
+        // 4. Update dish using domain method
         try
         {
             dish.Update(
@@ -112,50 +82,69 @@ public class UpdateDishCommandHandler : IRequestHandler<UpdateDishCommand, Resul
                 videoUrl: request.VideoUrl
             );
 
-            // განვაახლოთ ხელმისაწვდომობა
             dish.SetAvailability(request.IsAvailable);
         }
         catch (ArgumentException ex)
         {
-            return Result<DishResponseDto>.Failure(new Error(
-                "Dish.ValidationFailed",
-                ex.Message
+            return Result<DishResponseDto>.Failure(new Error("Dish.ValidationFailed", ex.Message));
+        }
+
+        // 5. Persist changes
+        _dishRepository.UpdateDish(dish);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result<DishResponseDto>.Success(dish.ToDto());
+    }
+
+    private async Task<Result<bool>> HandleImageUploadAsync(
+        Domain.Entities.Dish dish,
+        UpdateDishCommand request,
+        CancellationToken cancellationToken)
+    {
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        var fileExtension = Path.GetExtension(request.ImageFile!.FileName).ToLowerInvariant();
+
+        if (!allowedExtensions.Contains(fileExtension))
+        {
+            return Result<bool>.Failure(new Error(
+                "Image.InvalidFormat",
+                "Only .jpg, .jpeg, .png, .gif, .webp formats are allowed."
             ));
         }
 
-        // 5. შევინახოთ ბაზაში
-        await _productRepository.UpdateDishAsync(dish, cancellationToken);
-        await _productRepository.SaveChangesAsync(cancellationToken);
-
-        // 6. დავაბრუნოთ Response
-        var response = MapToDishResponseDto(dish);
-        return Result<DishResponseDto>.Success(response);
-    }
-
-    private static DishResponseDto MapToDishResponseDto(Domain.Entities.Dish dish)
-    {
-        return new DishResponseDto
+        if (request.ImageFile.Length > 5 * 1024 * 1024)
         {
-            Id = dish.Id,
-            NameKa = dish.NameKa,
-            NameEn = dish.NameEn,
-            DescriptionKa = dish.DescriptionKa,
-            DescriptionEn = dish.DescriptionEn,
-            Price = dish.Price,
-            DishCategoryId = dish.DishCategoryId,
-            PreparationTimeMinutes = dish.PreparationTimeMinutes,
-            Calories = dish.Calories,
-            SpicyLevel = dish.SpicyLevel,
-            Ingredients = dish.Ingredients,
-            IngredientsEn = dish.IngredientsEn,
-            Volume = dish.Volume,
-            AlcoholContent = dish.AlcoholContent,
-            IsVeganDish = dish.IsVeganDish,
-            Comment = dish.Comment,
-            ImageUrl = dish.ImageUrl,
-            VideoUrl = dish.VideoUrl,
-            CreatedAt = dish.CreatedAt,
-            UpdatedAt = dish.UpdatedAt
-        };
+            return Result<bool>.Failure(new Error(
+                "Image.TooLarge",
+                "Image size must not exceed 5MB."
+            ));
+        }
+
+        try
+        {
+            // Delete old image from Cloudinary if exists
+            if (!string.IsNullOrEmpty(dish.ImagePublicId))
+            {
+                await _cloudinaryService.DeleteImageAsync(dish.ImagePublicId, cancellationToken);
+            }
+
+            // Upload new image
+            var publicId = $"dishes/{request.Id}";
+            var imageUrl = await _cloudinaryService.UploadImageAsync(
+                request.ImageFile,
+                publicId,
+                cancellationToken
+            );
+
+            dish.UpdateImage(imageUrl, publicId);
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new Error(
+                "Image.UploadFailed",
+                $"Failed to upload image: {ex.Message}"
+            ));
+        }
     }
 }

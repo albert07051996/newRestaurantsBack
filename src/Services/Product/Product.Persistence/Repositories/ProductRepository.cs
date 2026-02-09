@@ -1,172 +1,155 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Product.Application.Common.Interfaces;
 using Product.Domain.Entities;
 
 namespace Product.Persistence.Repositories;
 
-public class ProductRepository : IProductRepository
+/// <summary>
+/// Repository implementation for Product domain operations.
+/// Implements IDishRepository, IDishCategoryRepository and IUnitOfWork through IProductRepository.
+/// </summary>
+public sealed class ProductRepository : IProductRepository
 {
     private readonly ProductDbContext _context;
 
     public ProductRepository(ProductDbContext context)
     {
-        _context = context;
+        _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
-    // ========== Dish Methods ==========
+    #region IDishRepository Implementation
 
-    /// <summary>
-    /// კერძის მიღება ID-ით (მხოლოდ არა-წაშლილები)
-    /// </summary>
+    /// <inheritdoc />
     public async Task<Dish?> GetDishByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.Dishes
             .Include(d => d.DishCategory)
-            .Where(d => !d.IsDeleted) // ✅ გამორიცხე წაშლილები
+            .Where(d => !d.IsDeleted)
             .FirstOrDefaultAsync(d => d.Id == id, cancellationToken);
     }
 
-    /// <summary>
-    /// ყველა კერძის მიღება (მხოლოდ არა-წაშლილები)
-    /// </summary>
+    /// <inheritdoc />
     public async Task<List<Dish>> GetAllDishesAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Dishes
             .Include(d => d.DishCategory)
-            .Where(d => !d.IsDeleted) // ✅ გამორიცხე წაშლილები
+            .Where(d => !d.IsDeleted)
             .OrderBy(d => d.CreatedAt)
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// წაშლილი კერძების მიღება (Admin-ისთვის)
-    /// </summary>
+    /// <inheritdoc />
     public async Task<List<Dish>> GetDeletedDishesAsync(CancellationToken cancellationToken = default)
     {
         return await _context.Dishes
             .Include(d => d.DishCategory)
-            .Where(d => d.IsDeleted) // ✅ მხოლოდ წაშლილები
+            .Where(d => d.IsDeleted)
             .OrderByDescending(d => d.DeletedAt)
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// ახალი კერძის დამატება
-    /// </summary>
+    /// <inheritdoc />
     public async Task AddDishAsync(Dish dish, CancellationToken cancellationToken = default)
     {
         await _context.Dishes.AddAsync(dish, cancellationToken);
     }
 
-    /// <summary>
-    /// კერძის განახლება
-    /// </summary>
-    public Task UpdateDishAsync(Dish dish, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public void UpdateDish(Dish dish)
     {
         _context.Dishes.Update(dish);
-        return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// კერძის წაშლა (Soft Delete) - ფიზიკურად არ იშლება!
-    /// </summary>
+    /// <inheritdoc />
     public async Task DeleteDishAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var dish = await _context.Dishes
             .FirstOrDefaultAsync(d => d.Id == id && !d.IsDeleted, cancellationToken);
 
-        if (dish != null)
+        if (dish is not null)
         {
-            dish.SoftDelete(); // ✅ Domain method
+            dish.SoftDelete();
             _context.Dishes.Update(dish);
         }
     }
 
-    /// <summary>
-    /// წაშლილი კერძის აღდგენა
-    /// </summary>
+    /// <inheritdoc />
     public async Task RestoreDishAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var dish = await _context.Dishes
             .FirstOrDefaultAsync(d => d.Id == id && d.IsDeleted, cancellationToken);
 
-        if (dish != null)
+        if (dish is not null)
         {
-            dish.Restore(); // ✅ Domain method
+            dish.Restore();
             _context.Dishes.Update(dish);
         }
     }
 
-    // ========== DishCategory Methods ==========
+    #endregion
 
-    /// <summary>
-    /// კატეგორიის არსებობის შემოწმება (არა-წაშლილი)
-    /// </summary>
-    public async Task<bool> DishCategoryExistsAsync(Guid categoryId, CancellationToken cancellationToken = default)
+    #region IDishCategoryRepository Implementation
+
+    /// <inheritdoc />
+    public async Task<bool> DishCategoryExistsAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.DishCategories
-            .AnyAsync(dc => dc.Id == categoryId && !dc.IsDeleted, cancellationToken);
+            .AnyAsync(dc => dc.Id == id && !dc.IsDeleted, cancellationToken);
     }
 
-    /// <summary>
-    /// კატეგორიის მიღება ID-ით (მხოლოდ არა-წაშლილი)
-    /// </summary>
+    /// <inheritdoc />
     public async Task<DishCategory?> GetDishCategoryByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return await _context.DishCategories
-            .Include(dc => dc.Dishes.Where(d => !d.IsDeleted)) // ✅ გამორიცხე წაშლილი კერძები
+            .Include(dc => dc.Dishes.Where(d => !d.IsDeleted))
             .Where(dc => !dc.IsDeleted)
             .FirstOrDefaultAsync(dc => dc.Id == id, cancellationToken);
     }
 
-    /// <summary>
-    /// ყველა კატეგორიის მიღება (მხოლოდ არა-წაშლილები)
-    /// </summary>
+    /// <inheritdoc />
     public async Task<List<DishCategory>> GetAllDishCategoriesAsync(CancellationToken cancellationToken = default)
     {
         return await _context.DishCategories
-            .Include(dc => dc.Dishes.Where(d => !d.IsDeleted)) // ✅ გამორიცხე წაშლილი კერძები
+            .Include(dc => dc.Dishes.Where(d => !d.IsDeleted))
             .Where(dc => !dc.IsDeleted)
             .OrderBy(dc => dc.DisplayOrder)
             .ToListAsync(cancellationToken);
     }
 
-    /// <summary>
-    /// ახალი კატეგორიის დამატება
-    /// </summary>
+    /// <inheritdoc />
     public async Task AddDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default)
     {
         await _context.DishCategories.AddAsync(category, cancellationToken);
     }
 
-    /// <summary>
-    /// კატეგორიის განახლება
-    /// </summary>
-    public Task UpdateDishCategoryAsync(DishCategory category, CancellationToken cancellationToken = default)
+    /// <inheritdoc />
+    public void UpdateDishCategory(DishCategory category)
     {
         _context.DishCategories.Update(category);
-        return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// კატეგორიის წაშლა (Soft Delete)
-    /// </summary>
+    /// <inheritdoc />
     public async Task DeleteDishCategoryAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var category = await _context.DishCategories
             .FirstOrDefaultAsync(dc => dc.Id == id && !dc.IsDeleted, cancellationToken);
 
-        if (category != null)
+        if (category is not null)
         {
-            category.SoftDelete(); // Domain method
+            category.SoftDelete();
             _context.DishCategories.Update(category);
         }
     }
 
-    // ========== Save Changes ==========
+    #endregion
 
+    #region IUnitOfWork Implementation
+
+    /// <inheritdoc />
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         return await _context.SaveChangesAsync(cancellationToken);
     }
+
+    #endregion
 }

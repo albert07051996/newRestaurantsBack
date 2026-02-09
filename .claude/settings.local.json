@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(dotnet build:*)",
-      "Bash(dotnet ef migrations add:*)"
+      "Bash(dotnet ef migrations add:*)",
+      "Bash(taskkill:*)",
+      "Bash(find:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(git -C \"C:\\\\Users\\\\unami\\\\source\\\\repos\\\\newRestaurantsBack\" ls-files)",
+      "Bash(git -C \"C:\\\\Users\\\\unami\\\\source\\\\repos\\\\newRestaurantsBack\" log --oneline --all)",
+      "Bash(git -C \"C:\\\\Users\\\\unami\\\\source\\\\repos\\\\newRestaurantsBack\" status --short)",
+      "Bash(git -C \"C:\\\\Users\\\\unami\\\\source\\\\repos\\\\newRestaurantsBack\" ls-files --others --exclude-standard)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite build)"
     ]
   }
 }

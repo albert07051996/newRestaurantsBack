@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: restaurant-api
+    runtime: docker
+    plan: free
+    envVars:
+      - key: ConnectionStrings__DefaultConnection
+        sync: false
+      - key: CloudinarySettings__CloudName
+        sync: false
+      - key: CloudinarySettings__ApiKey
+        sync: false
+      - key: CloudinarySettings__ApiSecret
+        sync: false
+      - key: CloudinarySettings__DefaultFolder
+        value: restaurants
+      - key: JwtSettings__Secret
+        sync: false
+      - key: JwtSettings__Issuer
+        value: RestaurantAPI
+      - key: JwtSettings__Audience
+        value: RestaurantFrontend
+      - key: JwtSettings__ExpirationInMinutes
+        value: "480"
+      - key: AdminCredentials__Email
+        sync: false
+      - key: AdminCredentials__Password
+        sync: false

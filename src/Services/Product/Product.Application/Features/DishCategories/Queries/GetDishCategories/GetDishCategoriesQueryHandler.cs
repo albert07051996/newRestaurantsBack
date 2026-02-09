@@ -1,86 +1,54 @@
 using MediatR;
 using Product.Application.Common.Interfaces;
+using Product.Application.Common.Mappings;
 using Product.Application.Common.Models;
 using Product.Application.DTOs;
-using Product.Domain.Entities;
 
 namespace Product.Application.Features.DishCategories.Queries.GetDishCategories;
 
-public class GetAllDishCategoriesQueryHandler : IRequestHandler<GetAllDishCategoriesQuery, Result<List<DishCategoryResponseDto>>>
+/// <summary>
+/// Handler for retrieving all active dish categories.
+/// </summary>
+public sealed class GetAllDishCategoriesQueryHandler : IRequestHandler<GetAllDishCategoriesQuery, Result<List<DishCategoryResponseDto>>>
 {
-    private readonly IProductRepository _productRepository;
+    private readonly IDishCategoryRepository _categoryRepository;
 
-    public GetAllDishCategoriesQueryHandler(IProductRepository productRepository)
+    public GetAllDishCategoriesQueryHandler(IDishCategoryRepository categoryRepository)
     {
-        _productRepository = productRepository;
+        _categoryRepository = categoryRepository;
     }
 
     public async Task<Result<List<DishCategoryResponseDto>>> Handle(GetAllDishCategoriesQuery request, CancellationToken cancellationToken)
     {
-        var categories = await _productRepository.GetAllDishCategoriesAsync(cancellationToken);
-
-        var response = categories.Select(MapToResponseDto).ToList();
-
-        return Result<List<DishCategoryResponseDto>>.Success(response);
-    }
-
-    private static DishCategoryResponseDto MapToResponseDto(DishCategory category)
-    {
-        return new DishCategoryResponseDto
-        {
-            Id = category.Id,
-            NameKa = category.NameKa,
-            NameEn = category.NameEn,
-            DescriptionKa = category.DescriptionKa,
-            DescriptionEn = category.DescriptionEn,
-            DisplayOrder = category.DisplayOrder,
-            IsActive = category.IsActive,
-            ImageUrl = category.ImageUrl,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+        var categories = await _categoryRepository.GetAllDishCategoriesAsync(cancellationToken);
+        return Result<List<DishCategoryResponseDto>>.Success(categories.ToDto());
     }
 }
 
-public class GetDishCategoryByIdQueryHandler : IRequestHandler<GetDishCategoryByIdQuery, Result<DishCategoryResponseDto>>
+/// <summary>
+/// Handler for retrieving a dish category by its identifier.
+/// </summary>
+public sealed class GetDishCategoryByIdQueryHandler : IRequestHandler<GetDishCategoryByIdQuery, Result<DishCategoryResponseDto>>
 {
-    private readonly IProductRepository _productRepository;
+    private readonly IDishCategoryRepository _categoryRepository;
 
-    public GetDishCategoryByIdQueryHandler(IProductRepository productRepository)
+    public GetDishCategoryByIdQueryHandler(IDishCategoryRepository categoryRepository)
     {
-        _productRepository = productRepository;
+        _categoryRepository = categoryRepository;
     }
 
     public async Task<Result<DishCategoryResponseDto>> Handle(GetDishCategoryByIdQuery request, CancellationToken cancellationToken)
     {
-        var category = await _productRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
+        var category = await _categoryRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
 
-        if (category == null)
+        if (category is null)
         {
             return Result<DishCategoryResponseDto>.Failure(new Error(
                 "DishCategory.NotFound",
-                $"კატეგორია ID {request.Id} ვერ მოიძებნა."
+                $"Category with ID {request.Id} was not found."
             ));
         }
 
-        var response = MapToResponseDto(category);
-        return Result<DishCategoryResponseDto>.Success(response);
-    }
-
-    private static DishCategoryResponseDto MapToResponseDto(DishCategory category)
-    {
-        return new DishCategoryResponseDto
-        {
-            Id = category.Id,
-            NameKa = category.NameKa,
-            NameEn = category.NameEn,
-            DescriptionKa = category.DescriptionKa,
-            DescriptionEn = category.DescriptionEn,
-            DisplayOrder = category.DisplayOrder,
-            IsActive = category.IsActive,
-            ImageUrl = category.ImageUrl,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+        return Result<DishCategoryResponseDto>.Success(category.ToDto());
     }
 }

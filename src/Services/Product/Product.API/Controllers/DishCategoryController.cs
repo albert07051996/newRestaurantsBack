@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Product.Application.Features.DishCategories.Commands.AddDishCategory;
 using Product.Application.Features.DishCategories.Commands.UpdateDishCategory;
@@ -56,6 +57,7 @@ public class DishCategoryController : ControllerBase
     /// ახალი კატეგორიის დამატება სურათით
     /// </summary>
     [HttpPost]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> AddDishCategory(
         [FromForm] AddDishCategoryCommand command,
@@ -79,6 +81,7 @@ public class DishCategoryController : ControllerBase
     /// კატეგორიის განახლება (სურათით)
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UpdateDishCategory(
         Guid id,
@@ -105,6 +108,7 @@ public class DishCategoryController : ControllerBase
     /// კატეგორიის წაშლა (Soft Delete)
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize]
     public async Task<IActionResult> DeleteDishCategory(Guid id, CancellationToken cancellationToken)
     {
         var command = new DeleteDishCategoryCommand(id);

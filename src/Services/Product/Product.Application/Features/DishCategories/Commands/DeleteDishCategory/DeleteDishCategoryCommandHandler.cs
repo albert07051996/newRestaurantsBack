@@ -4,50 +4,35 @@ using Product.Application.Common.Models;
 
 namespace Product.Application.Features.DishCategories.Commands.DeleteDishCategory;
 
-public class DeleteDishCategoryCommandHandler : IRequestHandler<DeleteDishCategoryCommand, Result<bool>>
+/// <summary>
+/// Handler for soft-deleting a dish category.
+/// </summary>
+public sealed class DeleteDishCategoryCommandHandler : IRequestHandler<DeleteDishCategoryCommand, Result<bool>>
 {
-    private readonly IProductRepository _productRepository;
-    private readonly ICloudinaryService _cloudinaryService;
+    private readonly IDishCategoryRepository _categoryRepository;
+    private readonly IUnitOfWork _unitOfWork;
 
-    public DeleteDishCategoryCommandHandler(
-        IProductRepository productRepository,
-        ICloudinaryService cloudinaryService)
+    public DeleteDishCategoryCommandHandler(IDishCategoryRepository categoryRepository, IUnitOfWork unitOfWork)
     {
-        _productRepository = productRepository;
-        _cloudinaryService = cloudinaryService;
+        _categoryRepository = categoryRepository;
+        _unitOfWork = unitOfWork;
     }
 
     public async Task<Result<bool>> Handle(DeleteDishCategoryCommand request, CancellationToken cancellationToken)
     {
-        // 1. მოვიძიოთ კატეგორია
-        var category = await _productRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
-        if (category == null)
+        // 1. Validate category exists
+        var category = await _categoryRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
+        if (category is null)
         {
             return Result<bool>.Failure(new Error(
                 "DishCategory.NotFound",
-                $"კატეგორია ID {request.Id} ვერ მოიძებნა."
+                $"Category with ID {request.Id} was not found."
             ));
         }
 
-        // 2. Soft Delete (Domain method)
-        await _productRepository.DeleteDishCategoryAsync(request.Id, cancellationToken);
-        await _productRepository.SaveChangesAsync(cancellationToken);
-
-        // 3. (Optional) წავშალოთ სურათი Cloudinary-დან
-        // შენიშვნა: შეგიძლია დატოვო Cloudinary-ში თუ გინდა Restore-ისას სურათიც დაბრუნდეს
-        /*
-        if (!string.IsNullOrEmpty(category.ImagePublicId))
-        {
-            try
-            {
-                await _cloudinaryService.DeleteImageAsync(category.ImagePublicId, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                // Log error but don't fail the operation
-            }
-        }
-        */
+        // 2. Soft delete (preserves image in Cloudinary for potential restore)
+        await _categoryRepository.DeleteDishCategoryAsync(request.Id, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Result<bool>.Success(true);
     }

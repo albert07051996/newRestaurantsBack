@@ -1,87 +1,53 @@
 using MediatR;
 using Product.Application.Common.Interfaces;
+using Product.Application.Common.Mappings;
 using Product.Application.Common.Models;
 using Product.Application.DTOs;
 
 namespace Product.Application.Features.DishCategories.Commands.UpdateDishCategory;
 
-public class UpdateDishCategoryCommandHandler : IRequestHandler<UpdateDishCategoryCommand, Result<DishCategoryResponseDto>>
+/// <summary>
+/// Handler for updating an existing dish category.
+/// </summary>
+public sealed class UpdateDishCategoryCommandHandler : IRequestHandler<UpdateDishCategoryCommand, Result<DishCategoryResponseDto>>
 {
-    private readonly IProductRepository _productRepository;
+    private readonly IDishCategoryRepository _categoryRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICloudinaryService _cloudinaryService;
 
     public UpdateDishCategoryCommandHandler(
-        IProductRepository productRepository,
+        IDishCategoryRepository categoryRepository,
+        IUnitOfWork unitOfWork,
         ICloudinaryService cloudinaryService)
     {
-        _productRepository = productRepository;
+        _categoryRepository = categoryRepository;
+        _unitOfWork = unitOfWork;
         _cloudinaryService = cloudinaryService;
     }
 
     public async Task<Result<DishCategoryResponseDto>> Handle(UpdateDishCategoryCommand request, CancellationToken cancellationToken)
     {
-        // 1. შევამოწმოთ არსებობს თუ არა კატეგორია
-        var category = await _productRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
-        if (category == null)
+        // 1. Validate category exists
+        var category = await _categoryRepository.GetDishCategoryByIdAsync(request.Id, cancellationToken);
+        if (category is null)
         {
             return Result<DishCategoryResponseDto>.Failure(new Error(
                 "DishCategory.NotFound",
-                $"კატეგორია ID {request.Id} ვერ მოიძებნა."
+                $"Category with ID {request.Id} was not found."
             ));
         }
 
-        // 2. თუ ახალი სურათია მოწოდებული, ავტვირთოთ Cloudinary-ში
-        if (request.ImageFile != null && request.ImageFile.Length > 0)
+        // 2. Upload new image if provided
+        if (request.ImageFile is { Length: > 0 })
         {
-            // ვალიდაცია
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            var fileExtension = Path.GetExtension(request.ImageFile.FileName).ToLowerInvariant();
-
-            if (!allowedExtensions.Contains(fileExtension))
+            var imageResult = await HandleImageUploadAsync(category, request, cancellationToken);
+            if (!imageResult.IsSuccess)
             {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.InvalidFormat",
-                    "მხოლოდ .jpg, .jpeg, .png, .gif, .webp ფორმატები დაშვებულია."
-                ));
-            }
-
-            if (request.ImageFile.Length > 5 * 1024 * 1024)
-            {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.TooLarge",
-                    "სურათის ზომა არ უნდა აღემატებოდეს 5MB-ს."
-                ));
-            }
-
-            try
-            {
-                // წავშალოთ ძველი სურათი Cloudinary-დან (თუ არსებობს)
-                if (!string.IsNullOrEmpty(category.ImagePublicId))
-                {
-                    await _cloudinaryService.DeleteImageAsync(category.ImagePublicId, cancellationToken);
-                }
-
-                // ავტვირთოთ ახალი სურათი
-                var publicId = $"dish-categories/{request.Id}";
-                var imageUrl = await _cloudinaryService.UploadImageAsync(
-                    request.ImageFile,
-                    publicId,
-                    cancellationToken
-                );
-
-                // განვაახლოთ სურათი Domain-ში
-                category.UpdateImage(imageUrl, publicId);
-            }
-            catch (Exception ex)
-            {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.UploadFailed",
-                    $"სურათის ატვირთვა ვერ მოხერხდა: {ex.Message}"
-                ));
+                return Result<DishCategoryResponseDto>.Failure(imageResult.Error!);
             }
         }
 
-        // 3. განვაახლოთ კატეგორია (Domain method)
+        // 3. Update category using domain method
         try
         {
             category.Update(
@@ -92,7 +58,6 @@ public class UpdateDishCategoryCommandHandler : IRequestHandler<UpdateDishCatego
                 displayOrder: request.DisplayOrder
             );
 
-            // განვაახლოთ სტატუსი
             if (request.IsActive)
                 category.Activate();
             else
@@ -100,35 +65,65 @@ public class UpdateDishCategoryCommandHandler : IRequestHandler<UpdateDishCatego
         }
         catch (ArgumentException ex)
         {
-            return Result<DishCategoryResponseDto>.Failure(new Error(
-                "DishCategory.ValidationFailed",
-                ex.Message
+            return Result<DishCategoryResponseDto>.Failure(new Error("DishCategory.ValidationFailed", ex.Message));
+        }
+
+        // 4. Persist changes
+        _categoryRepository.UpdateDishCategory(category);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result<DishCategoryResponseDto>.Success(category.ToDto());
+    }
+
+    private async Task<Result<bool>> HandleImageUploadAsync(
+        Domain.Entities.DishCategory category,
+        UpdateDishCategoryCommand request,
+        CancellationToken cancellationToken)
+    {
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        var fileExtension = Path.GetExtension(request.ImageFile!.FileName).ToLowerInvariant();
+
+        if (!allowedExtensions.Contains(fileExtension))
+        {
+            return Result<bool>.Failure(new Error(
+                "Image.InvalidFormat",
+                "Only .jpg, .jpeg, .png, .gif, .webp formats are allowed."
             ));
         }
 
-        // 4. შევინახოთ ბაზაში
-        await _productRepository.UpdateDishCategoryAsync(category, cancellationToken);
-        await _productRepository.SaveChangesAsync(cancellationToken);
-
-        // 5. დავაბრუნოთ Response
-        var response = MapToResponseDto(category);
-        return Result<DishCategoryResponseDto>.Success(response);
-    }
-
-    private static DishCategoryResponseDto MapToResponseDto(Domain.Entities.DishCategory category)
-    {
-        return new DishCategoryResponseDto
+        if (request.ImageFile.Length > 5 * 1024 * 1024)
         {
-            Id = category.Id,
-            NameKa = category.NameKa,
-            NameEn = category.NameEn,
-            DescriptionKa = category.DescriptionKa,
-            DescriptionEn = category.DescriptionEn,
-            DisplayOrder = category.DisplayOrder,
-            IsActive = category.IsActive,
-            ImageUrl = category.ImageUrl,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+            return Result<bool>.Failure(new Error(
+                "Image.TooLarge",
+                "Image size must not exceed 5MB."
+            ));
+        }
+
+        try
+        {
+            // Delete old image from Cloudinary if exists
+            if (!string.IsNullOrEmpty(category.ImagePublicId))
+            {
+                await _cloudinaryService.DeleteImageAsync(category.ImagePublicId, cancellationToken);
+            }
+
+            // Upload new image
+            var publicId = $"dish-categories/{request.Id}";
+            var imageUrl = await _cloudinaryService.UploadImageAsync(
+                request.ImageFile,
+                publicId,
+                cancellationToken
+            );
+
+            category.UpdateImage(imageUrl, publicId);
+            return Result<bool>.Success(true);
+        }
+        catch (Exception ex)
+        {
+            return Result<bool>.Failure(new Error(
+                "Image.UploadFailed",
+                $"Failed to upload image: {ex.Message}"
+            ));
+        }
     }
 }

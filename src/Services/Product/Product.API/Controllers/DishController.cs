@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Product.Application.Features.Dishes.Commands.AddDish;
 using Product.Application.Features.Dishes.Commands.UpdateDish;
@@ -19,9 +20,6 @@ public class DishController : ControllerBase
         _mediator = mediator;
     }
 
-    /// <summary>
-    /// ყველა კერძის მიღება
-    /// </summary>
     [HttpGet]
     public async Task<IActionResult> GetAllDishes(CancellationToken cancellationToken)
     {
@@ -36,9 +34,6 @@ public class DishController : ControllerBase
         return Ok(result.Value);
     }
 
-    /// <summary>
-    /// კერძის მიღება ID-ით
-    /// </summary>
     [HttpGet("{id}")]
     public async Task<IActionResult> GetDishById(Guid id, CancellationToken cancellationToken)
     {
@@ -53,10 +48,8 @@ public class DishController : ControllerBase
         return Ok(result.Value);
     }
 
-    /// <summary>
-    /// ახალი კერძის დამატება სურათით
-    /// </summary>
     [HttpPost]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> AddDish(
         [FromForm] AddDishCommand command,
@@ -71,22 +64,19 @@ public class DishController : ControllerBase
 
         return CreatedAtAction(
             nameof(GetDishById),
-            new { id = result.Value.Id },
+            new { id = result.Value!.Id },
             result.Value
         );
     }
 
-    /// <summary>
-    /// კერძის განახლება (სურათით)
-    /// </summary>
     [HttpPut("{id}")]
+    [Authorize]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UpdateDish(
         Guid id,
         [FromForm] UpdateDishCommand command,
         CancellationToken cancellationToken)
     {
-        // ID-ის შემოწმება
         if (id != command.Id)
         {
             return BadRequest(new { Error = "URL-ის ID და Body-ს ID არ ემთხვევა" });
@@ -102,10 +92,8 @@ public class DishController : ControllerBase
         return Ok(result.Value);
     }
 
-    /// <summary>
-    /// კერძის წაშლა (Soft Delete)
-    /// </summary>
     [HttpDelete("{id}")]
+    [Authorize]
     public async Task<IActionResult> DeleteDish(Guid id, CancellationToken cancellationToken)
     {
         var command = new DeleteDishCommand(id);
@@ -116,13 +104,11 @@ public class DishController : ControllerBase
             return NotFound(result.Error);
         }
 
-        return NoContent(); // 204 No Content
+        return NoContent();
     }
 
-    /// <summary>
-    /// წაშლილი კერძის აღდგენა
-    /// </summary>
     [HttpPost("{id}/restore")]
+    [Authorize]
     public async Task<IActionResult> RestoreDish(Guid id, CancellationToken cancellationToken)
     {
         var command = new RestoreDishCommand(id);

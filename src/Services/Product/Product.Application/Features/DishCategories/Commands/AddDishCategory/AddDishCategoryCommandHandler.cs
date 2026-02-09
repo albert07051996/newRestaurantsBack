@@ -1,77 +1,48 @@
 using MediatR;
 using Product.Application.Common.Interfaces;
+using Product.Application.Common.Mappings;
 using Product.Application.Common.Models;
 using Product.Application.DTOs;
 using Product.Domain.Entities;
 
 namespace Product.Application.Features.DishCategories.Commands.AddDishCategory;
 
-public class AddDishCategoryCommandHandler : IRequestHandler<AddDishCategoryCommand, Result<DishCategoryResponseDto>>
+/// <summary>
+/// Handler for adding a new dish category.
+/// </summary>
+public sealed class AddDishCategoryCommandHandler : IRequestHandler<AddDishCategoryCommand, Result<DishCategoryResponseDto>>
 {
-    private readonly IProductRepository _productRepository;
+    private readonly IDishCategoryRepository _categoryRepository;
+    private readonly IUnitOfWork _unitOfWork;
     private readonly ICloudinaryService _cloudinaryService;
 
     public AddDishCategoryCommandHandler(
-        IProductRepository productRepository,
+        IDishCategoryRepository categoryRepository,
+        IUnitOfWork unitOfWork,
         ICloudinaryService cloudinaryService)
     {
-        _productRepository = productRepository;
+        _categoryRepository = categoryRepository;
+        _unitOfWork = unitOfWork;
         _cloudinaryService = cloudinaryService;
     }
 
     public async Task<Result<DishCategoryResponseDto>> Handle(AddDishCategoryCommand request, CancellationToken cancellationToken)
     {
-        // 1. თუ სურათია მიწოდებული, ავტვირთოთ Cloudinary-ში
+        // 1. Upload image to Cloudinary if provided
         string? imageUrl = null;
         string? imagePublicId = null;
 
-        if (request.ImageFile != null && request.ImageFile.Length > 0)
+        if (request.ImageFile is { Length: > 0 })
         {
-            // ვალიდაცია სურათის ტიპის
-            var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-            var fileExtension = Path.GetExtension(request.ImageFile.FileName).ToLowerInvariant();
-
-            if (!allowedExtensions.Contains(fileExtension))
+            var uploadResult = await UploadImageAsync(request, cancellationToken);
+            if (!uploadResult.IsSuccess)
             {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.InvalidFormat",
-                    "მხოლოდ .jpg, .jpeg, .png, .gif, .webp ფორმატები დაშვებულია."
-                ));
+                return Result<DishCategoryResponseDto>.Failure(uploadResult.Error!);
             }
-
-            // შევამოწმოთ ფაილის ზომა (მაქსიმუმ 5MB)
-            if (request.ImageFile.Length > 5 * 1024 * 1024)
-            {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.TooLarge",
-                    "სურათის ზომა არ უნდა აღემატებოდეს 5MB-ს."
-                ));
-            }
-
-            try
-            {
-                // გავაკეთოთ უნიკალური Public ID
-                var publicId = $"dish-categories/{Guid.NewGuid()}";
-
-                // ავტვირთოთ სურათი Cloudinary-ში
-                imageUrl = await _cloudinaryService.UploadImageAsync(
-                    request.ImageFile,
-                    publicId,
-                    cancellationToken
-                );
-
-                imagePublicId = publicId;
-            }
-            catch (Exception ex)
-            {
-                return Result<DishCategoryResponseDto>.Failure(new Error(
-                    "Image.UploadFailed",
-                    $"სურათის ატვირთვა ვერ მოხერხდა: {ex.Message}"
-                ));
-            }
+            (imageUrl, imagePublicId) = uploadResult.Value!;
         }
 
-        // 2. შევქმნათ DishCategory entity (Factory Method - Domain-ში validation)
+        // 2. Create DishCategory entity using factory method
         DishCategory category;
         try
         {
@@ -87,49 +58,70 @@ public class AddDishCategoryCommandHandler : IRequestHandler<AddDishCategoryComm
         }
         catch (ArgumentException ex)
         {
-            // თუ Domain Validation ჩაიშალა
-            // და სურათი ატვირთული იყო, წავშალოთ Cloudinary-დან
-            if (!string.IsNullOrEmpty(imagePublicId))
-            {
-                try
-                {
-                    await _cloudinaryService.DeleteImageAsync(imagePublicId, cancellationToken);
-                }
-                catch
-                {
-                    // Log error but don't fail
-                }
-            }
+            await TryDeleteImageAsync(imagePublicId, cancellationToken);
+            return Result<DishCategoryResponseDto>.Failure(new Error("DishCategory.ValidationFailed", ex.Message));
+        }
 
-            return Result<DishCategoryResponseDto>.Failure(new Error(
-                "DishCategory.ValidationFailed",
-                ex.Message
+        // 3. Persist to database
+        await _categoryRepository.AddDishCategoryAsync(category, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Result<DishCategoryResponseDto>.Success(category.ToDto());
+    }
+
+    private async Task<Result<(string Url, string PublicId)>> UploadImageAsync(
+        AddDishCategoryCommand request,
+        CancellationToken cancellationToken)
+    {
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        var fileExtension = Path.GetExtension(request.ImageFile!.FileName).ToLowerInvariant();
+
+        if (!allowedExtensions.Contains(fileExtension))
+        {
+            return Result<(string, string)>.Failure(new Error(
+                "Image.InvalidFormat",
+                "Only .jpg, .jpeg, .png, .gif, .webp formats are allowed."
             ));
         }
 
-        // 3. დავამატოთ ბაზაში
-        await _productRepository.AddDishCategoryAsync(category, cancellationToken);
-        await _productRepository.SaveChangesAsync(cancellationToken);
+        if (request.ImageFile.Length > 5 * 1024 * 1024)
+        {
+            return Result<(string, string)>.Failure(new Error(
+                "Image.TooLarge",
+                "Image size must not exceed 5MB."
+            ));
+        }
 
-        // 4. დავაბრუნოთ Response DTO
-        var response = MapToResponseDto(category);
-        return Result<DishCategoryResponseDto>.Success(response);
+        try
+        {
+            var publicId = $"dish-categories/{Guid.NewGuid()}";
+            var imageUrl = await _cloudinaryService.UploadImageAsync(
+                request.ImageFile,
+                publicId,
+                cancellationToken
+            );
+            return Result<(string, string)>.Success((imageUrl, publicId));
+        }
+        catch (Exception ex)
+        {
+            return Result<(string, string)>.Failure(new Error(
+                "Image.UploadFailed",
+                $"Failed to upload image: {ex.Message}"
+            ));
+        }
     }
 
-    private static DishCategoryResponseDto MapToResponseDto(DishCategory category)
+    private async Task TryDeleteImageAsync(string? imagePublicId, CancellationToken cancellationToken)
     {
-        return new DishCategoryResponseDto
+        if (string.IsNullOrEmpty(imagePublicId)) return;
+
+        try
         {
-            Id = category.Id,
-            NameKa = category.NameKa,
-            NameEn = category.NameEn,
-            DescriptionKa = category.DescriptionKa,
-            DescriptionEn = category.DescriptionEn,
-            DisplayOrder = category.DisplayOrder,
-            IsActive = category.IsActive,
-            ImageUrl = category.ImageUrl,
-            CreatedAt = category.CreatedAt,
-            UpdatedAt = category.UpdatedAt
-        };
+            await _cloudinaryService.DeleteImageAsync(imagePublicId, cancellationToken);
+        }
+        catch
+        {
+            // Log error but don't fail the operation
+        }
     }
 }
