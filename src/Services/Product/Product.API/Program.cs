@@ -1,13 +1,21 @@
-using System.Text;
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Product.Application;
+using Product.Application.Features.Dishes.Commands.AddDish;
+using Product.Application.Features.Orders.Commands.CreateOrder;
 using Product.Infrastructure;
 using Product.Persistence;
+using System.Text;
+
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<AddDishCommandValidator>();
+builder.Services.AddValidatorsFromAssemblyContaining<CreateOrderCommandValidator>();
 
 // Add services to the container
 builder.Services.AddControllers();
